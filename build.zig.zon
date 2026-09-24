@@ -1,0 +1,12 @@
+.{
+    .name = .ch6,
+    .version = "0.16.0",
+    .dependencies = .{
+        .raylib = .{
+            .url = "https://github.com/raysan5/raylib/archive/7553e9d58640ba0c3a2fc185a9cb458f00fae06e.tar.gz",
+            .hash = "raylib-5.6.0-dev-whq8uJZFCgW4Z4fpvKFfmSsBHJc61bCkFeocDv28uk8H",
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0xd74ed85d37f627d8,
+}

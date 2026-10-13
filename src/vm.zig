@@ -24,6 +24,7 @@ pub const Memory = struct {
 
     pc: u12,
     i: u12, // registrador I
+    sp: u12,
     vars: [16]u8,
     data: [total_memory_bytes]u8,
 
@@ -46,15 +47,9 @@ pub const Memory = struct {
     }
 
     pub fn step(random: std.Random, memory: *Memory, display: *Display, keypad: *Keypad) error{ UnknownInstruction, ReadOutOfBounds }!void {
-        _ = random;
-        _ = display;
-        _ = keypad;
-
         const bytecode = try memory.readBytes(memory.pc, 2);
-        memory.pc += 2;
 
-        _ = bytecode;
-        return error.UnknownInstruction;
+        try memory.readBytecode(memory.pc, &bytecode, display, keypad, random);
     }
 
     pub fn loadProgram(
@@ -63,9 +58,10 @@ pub const Memory = struct {
     ) error{WriteOutOfBounds}!void {
         try self.writeBytes(program_load_addr, program);
         self.pc = program_load_addr;
+        self.sp = 0;
     }
 
-    pub fn readBytecode(memory: *Memory, bytecode: []const u8, random: std.Random) !void {
+    pub fn readBytecode(memory: *Memory, bytecode: []const u8, display: *Display, random: std.Random) !void {
         const nibbles = [4]u4{
             @intCast(bytecode[0] >> 4),
             @truncate(bytecode[0]),
@@ -99,8 +95,28 @@ pub const Memory = struct {
                 },
                 else => return error.UnknownInstruction,
             },
+            0x0 => switch (bytecode[1]) {
+                0xE0 => {
+                    display.clear();
+                },
+                0xEE => {
+                    memory.sp -= 2;
+                    const return_bytes = try memory.readBytes(memory.sp, 2);
+                    memory.pc = (@as(u12, return_bytes[0]) << 8) | return_bytes[1];
+                },
+                else => return error.UnknownInstruction,
+            },
             0x1 => { // JP addr
                 const addr: u12 = (@as(u12, nibbles[1]) << 8) + bytecode[1];
+                memory.pc = addr;
+            },
+            0x2 => {
+                const addr: u12 = (@as(u12, nibbles[i]) << 8) | bytecode[1];
+
+                const pc_bytes = [2]u8{ @intCast(memory.pc >> 8), @truncate(memory.pc) };
+                try memory.writeBytes(memory.pc, &pc_bytes);
+
+                memory.sp += 2;
                 memory.pc = addr;
             },
             0x3 => {

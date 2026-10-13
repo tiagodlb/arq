@@ -17,14 +17,14 @@ pub fn main(init: std.process.Init) !void {
 
     var seed: u64 = undefined;
     io.random(std.mem.asBytes(&seed));
-    var prng = std.Random.DefaultPrng.init(seed);
-    const random = prng.random();
+    // var prng = std.Random.DefaultPrng.init(seed);
+    // const random = prng.random();
 
     var keypad: vm.Keypad = undefined;
     var display: vm.Display = undefined;
     display.clear();
-    var memory: vm.Memory = undefined;
-    try memory.loadProgram(@embedFile("./font.bin"));
+    // var memory: vm.Memory = undefined;
+    // try memory.loadProgram(@embedFile("./font.bin"));
 
     const cell_pix = 12;
     c.InitWindow(64 * cell_pix, 32 * cell_pix, "CHIP-8");
@@ -37,9 +37,9 @@ pub fn main(init: std.process.Init) !void {
             keypad.keys[i] = c.IsKeyPressed(key);
         }
 
-        for (0..1000) |_| {
-            try vm.Memory.step(random, &memory, &display, &keypad);
-        }
+        // for (0..1000) |_| {
+        //     try vm.Memory.step(random, &memory, &display, &keypad);
+        // }
 
         c.BeginDrawing();
         defer c.EndDrawing();

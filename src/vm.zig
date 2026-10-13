@@ -61,7 +61,7 @@ pub const Memory = struct {
         self.sp = 0;
     }
 
-    pub fn readBytecode(memory: *Memory, bytecode: []const u8, display: *Display, random: std.Random) !void {
+    pub fn readBytecode(memory: *Memory, bytecode: []const u8, display: *Display, keypad: *Keypad, random: std.Random) !void {
         const nibbles = [4]u4{
             @intCast(bytecode[0] >> 4),
             @truncate(bytecode[0]),
@@ -89,7 +89,56 @@ pub const Memory = struct {
 
                 memory.vars[x] = rand & kk;
             },
+            0xD => {
+                const x = memory.vars[nibbles[1]];
+                const y = memory.vars[nibbles[2]];
+                const height = nibbles[3];
+
+                memory.vars[0xF] = 0;
+
+                for (0..height) |row| {
+                    const sprite_byte = (try memory.readBytes(memory.i + @as(u12, @intCast(row)), 1))[0];
+
+                    const py = (y % 32) + row;
+
+                    if (py >= 32) break;
+
+                    for (0..8) |col| {
+                        const px = (x % 64) + col;
+
+                        if (px >= 64) break;
+
+                        const bit: u1 = @truncate(sprite_byte >> @intCast(7 - col));
+
+                        if (bit == 1) {
+                            if (display.pixels[py][px] == 1) {
+                                memory.vars[0xF] = 1;
+                            }
+
+                            display.pixels[py][px] ^= 1;
+                        }
+                    }
+                }
+            },
             0xF => switch (nibbles[3]) {
+                0x0A => {
+                    const x = nibbles[1];
+                    var key_pressed: ?u8 = null;
+
+                    for (keypad.keys, 0..) |is_pressed, key_index| {
+                        if (is_pressed) {
+                            key_pressed = @intCast(key_index);
+                            break;
+                        }
+                    }
+
+                    if (key_pressed) |key| {
+                        memory.vars[x] = key;
+                        keypad.keys[key] = false;
+                    } else {
+                        memory.pc -= 2;
+                    }
+                },
                 0x1E => {
                     memory.i = @as(u12, memory.vars[nibbles[1]]) + memory.i;
                 },
@@ -111,7 +160,7 @@ pub const Memory = struct {
                 memory.pc = addr;
             },
             0x2 => {
-                const addr: u12 = (@as(u12, nibbles[i]) << 8) | bytecode[1];
+                const addr: u12 = (@as(u12, nibbles[1]) << 8) | bytecode[1];
 
                 const pc_bytes = [2]u8{ @intCast(memory.pc >> 8), @truncate(memory.pc) };
                 try memory.writeBytes(memory.pc, &pc_bytes);

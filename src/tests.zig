@@ -8,15 +8,19 @@ const Context = struct {
     memory: vm.Memory,
     display: vm.Display,
     keypad: vm.Keypad,
+    prng: std.Random.DefaultPrng,
 
     fn init(program: []const u8) error{WriteOutOfBounds}!Self {
         var self: Self = undefined;
         try self.memory.loadProgram(program);
+        self.display.clear();
+        self.keypad.keys = [_]bool{false} ** 16;
+        self.prng = std.Random.DefaultPrng.init(0);
         return self;
     }
 
     fn step(self: *Self) vm.Error!void {
-        try vm.step(&self.memory, &self.display, &self.keypad);
+        try self.memory.step(self.prng.random(), &self.memory, &self.display, &self.keypad);
     }
 };
 
@@ -166,10 +170,10 @@ test "subtract from register" {
     try ctx.step();
     try ctx.step();
     try testing.expectEqual(0x04, ctx.memory.vars[0]);
-    try testing.expectEqual(0x00, ctx.memory.vars[0xF]);
+    try testing.expectEqual(0x01, ctx.memory.vars[0xF]);
     try ctx.step();
     try testing.expectEqual(0xFE, ctx.memory.vars[0]);
-    try testing.expectEqual(0x01, ctx.memory.vars[0xF]);
+    try testing.expectEqual(0x00, ctx.memory.vars[0xF]);
 }
 
 test "set pointer with offset" {

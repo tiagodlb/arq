@@ -27,25 +27,8 @@ pub fn main(init: std.process.Init) !void {
     const font_bytes = @embedFile("./font.bin");
     @memcpy(memory.data[0x050 .. 0x050 + font_bytes.len], font_bytes);
 
-    const test_program = [_]u8{
-        0x60, 0x7B, // V0 = 123
-        0xA3, 0x00, // I = 0x300
-        0xF0, 0x33, // BCD(V0) na RAM
-        0xF2, 0x65, // LOAD
-        0x6A, 0x0A, // VA = 10 (X)
-        0x6B, 0x0A, // VB = 10 (Y)
-        0xF0, 0x29, // I = font_sprite(V0) ['1']
-        0xDA, 0xB5, // DRW VA, VB, 5
-        0x7A, 0x08, // VA += 8
-        0xF1, 0x29, // I = font_sprite(V1) ['2']
-        0xDA, 0xB5, // DRW VA, VB, 5
-        0x7A, 0x08, // VA += 8
-        0xF2, 0x29, // I = font_sprite(V2) ['3']
-        0xDA, 0xB5, // DRW VA, VB, 5
-        0x12, 0x1C, // JP 0x21C (loop)
-    };
-
-    try memory.loadProgram(&test_program);
+    const rom = @embedFile("kaleidoscope");
+    try memory.loadProgram(rom);
 
     const cell_pix = 12;
     c.InitWindow(64 * cell_pix, 32 * cell_pix, "CHIP-8");
@@ -94,12 +77,6 @@ pub fn main(init: std.process.Init) !void {
                     c.WHITE,
                 );
             }
-        }
-
-        for (keypad.keys, 0..) |is_pressed, i| {
-            if (!is_pressed) continue;
-            const x: c_int = @intCast(i * 20);
-            c.DrawRectangle(x, 0, 20, 20, c.WHITE);
         }
     }
 }

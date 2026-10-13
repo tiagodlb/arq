@@ -28,6 +28,7 @@ pub fn build(b: *std.Build) void {
 
     const app_mod = b.createModule(.{ .root_source_file = b.path("src/app.zig"), .target = target, .optimize = optimize });
     app_mod.addImport("vm", vm_mod);
+    app_mod.addAnonymousImport("kaleidoscope", .{ .root_source_file = b.path("res/kaleidoscope.ch8") });
     app_mod.linkLibrary(raylib_lib);
 
     const app = b.addExecutable(.{ .name = "chip8-runtime", .root_module = app_mod, .use_llvm = true });

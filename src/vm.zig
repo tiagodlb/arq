@@ -48,6 +48,7 @@ pub const Memory = struct {
     sp: u12, // stack pointer
     dt: u8, // delay timer
     st: u8, // sount timer
+    held_key: ?u4,
     vars: [16]u8,
     data: [total_memory_bytes]u8,
 
@@ -90,12 +91,16 @@ pub const Memory = struct {
         self: *Self,
         program: []const u8,
     ) error{WriteOutOfBounds}!void {
+        @memset(&self.data, 0);
         @memcpy(self.data[font_start_addr .. font_start_addr + fontset.len], &fontset);
         try self.writeBytes(program_load_addr, program);
+        @memset(&self.vars, 0);
         self.pc = program_load_addr;
+        self.i = 0;
         self.sp = 0;
         self.dt = 0;
         self.st = 0;
+        self.held_key = null;
     }
 
     pub fn readBytecode(memory: *Memory, bytecode: []const u8, display: *Display, keypad: *Keypad, random: std.Random) !void {
@@ -157,24 +162,42 @@ pub const Memory = struct {
                     }
                 }
             },
+            0xE => switch (bytecode[1]) {
+                0x9E => {
+                    const key = memory.vars[nibbles[1]] & 0x0F;
+                    if (keypad.keys[key]) {
+                        memory.pc = memory.pc + 2;
+                    }
+                },
+                0xA1 => {
+                    const key = memory.vars[nibbles[1]] & 0x0F;
+                    if (!keypad.keys[key]) {
+                        memory.pc = memory.pc + 2;
+                    }
+                },
+                else => return error.UnknownInstruction,
+            },
             0xF => switch (bytecode[1]) {
                 0x0A => {
                     const x = nibbles[1];
-                    var key_pressed: ?u8 = null;
 
-                    for (keypad.keys, 0..) |is_pressed, key_index| {
-                        if (is_pressed) {
-                            key_pressed = @intCast(key_index);
-                            break;
+                    if (memory.held_key) |key| {
+                        if (!keypad.keys[key]) {
+                            memory.held_key = null;
                         }
                     }
 
-                    if (key_pressed) |key| {
-                        memory.vars[x] = key;
-                        keypad.keys[key] = false;
-                    } else {
-                        memory.pc -= 2;
+                    for (keypad.keys, 0..) |is_pressed, key_index| {
+                        const key: u4 = @intCast(key_index);
+
+                        if (is_pressed and memory.held_key != key) {
+                            memory.vars[x] = key;
+                            memory.held_key = key;
+                            return;
+                        }
                     }
+
+                    memory.pc -= 2;
                 },
                 0x07 => {
                     memory.vars[nibbles[1]] = memory.dt;
@@ -196,7 +219,7 @@ pub const Memory = struct {
                     memory.data[memory.i + 2] = value % 10;
                 },
                 0x1E => {
-                    memory.i = @as(u12, memory.vars[nibbles[1]]) + memory.i;
+                    memory.i = @as(u12, memory.vars[nibbles[1]]) +% memory.i;
                 },
                 0x55 => {
                     const x = nibbles[1];
@@ -298,6 +321,30 @@ pub const Memory = struct {
                     memory.vars[x] = result;
                     memory.vars[0xF] = no_borrow;
                 },
+                0x6 => {
+                    const x = nibbles[1];
+                    const lsb: u8 = memory.vars[x] & 0x1;
+
+                    memory.vars[x] >>= 1;
+                    memory.vars[0xF] = lsb;
+                },
+                0x7 => {
+                    const x = nibbles[1];
+                    const y = nibbles[2];
+
+                    const no_borrow: u8 = if (memory.vars[y] >= memory.vars[x]) 1 else 0;
+                    const result, _ = @subWithOverflow(memory.vars[y], memory.vars[x]);
+
+                    memory.vars[x] = result;
+                    memory.vars[0xF] = no_borrow;
+                },
+                0xE => {
+                    const x = nibbles[1];
+                    const msb: u8 = memory.vars[x] >> 7;
+
+                    memory.vars[x] <<= 1;
+                    memory.vars[0xF] = msb;
+                },
                 else => {
                     return error.UnknownInstruction;
                 },
@@ -313,9 +360,6 @@ pub const Memory = struct {
                 } else {
                     return error.UnknownInstruction;
                 }
-            },
-            else => {
-                return error.UnknownInstruction;
             },
         }
     }

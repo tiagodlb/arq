@@ -4,6 +4,27 @@ pub const Error = error{ ReadOutOfBounds, UnknownInstruction, WriteOutOfBounds }
 
 pub const program_load_addr = 0x200;
 
+pub const font_start_addr: u12 = 0x050;
+
+pub const fontset = [80]u8{
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+};
+
 pub const Display = struct {
     // [y][x]
     pixels: [32][64]u1,
@@ -22,11 +43,18 @@ pub const Memory = struct {
 
     pub const total_memory_bytes = 0x1000;
 
-    pc: u12,
+    pc: u12, // program counter
     i: u12, // registrador I
-    sp: u12,
+    sp: u12, // stack pointer
+    dt: u8, // delay timer
+    st: u8, // sount timer
     vars: [16]u8,
     data: [total_memory_bytes]u8,
+
+    pub fn tickTimers(self: *Self) void {
+        if (self.dt > 0) self.dt -= 1;
+        if (self.st > 0) self.st -= 1;
+    }
 
     pub fn readBytes(self: *const Self, addr: u12, comptime nbytes: comptime_int) error{ReadOutOfBounds}![nbytes]u8 {
         if (addr + nbytes > total_memory_bytes) {
@@ -46,19 +74,28 @@ pub const Memory = struct {
         @memcpy(target, data);
     }
 
-    pub fn step(random: std.Random, memory: *Memory, display: *Display, keypad: *Keypad) error{ UnknownInstruction, ReadOutOfBounds }!void {
+    pub fn step(self: *Self, random: std.Random, memory: *Memory, display: *Display, keypad: *Keypad) error{ UnknownInstruction, ReadOutOfBounds, WriteOutOfBounds }!void {
         const bytecode = try memory.readBytes(memory.pc, 2);
 
-        try memory.readBytecode(memory.pc, &bytecode, display, keypad, random);
+        // DEBUG
+        //const opcode = (@as(u16, bytecode[0]) << 8 | bytecode[1]);
+        //std.debug.print("exec PC 0x{X:0>3}: opcode 0x{X:0>4}\n", .{ memory.pc, opcode });
+
+        self.pc += 2;
+
+        try memory.readBytecode(&bytecode, display, keypad, random);
     }
 
     pub fn loadProgram(
         self: *Self,
         program: []const u8,
     ) error{WriteOutOfBounds}!void {
+        @memcpy(self.data[font_start_addr .. font_start_addr + fontset.len], &fontset);
         try self.writeBytes(program_load_addr, program);
         self.pc = program_load_addr;
         self.sp = 0;
+        self.dt = 0;
+        self.st = 0;
     }
 
     pub fn readBytecode(memory: *Memory, bytecode: []const u8, display: *Display, keypad: *Keypad, random: std.Random) !void {
@@ -120,7 +157,7 @@ pub const Memory = struct {
                     }
                 }
             },
-            0xF => switch (nibbles[3]) {
+            0xF => switch (bytecode[1]) {
                 0x0A => {
                     const x = nibbles[1];
                     var key_pressed: ?u8 = null;
@@ -139,8 +176,39 @@ pub const Memory = struct {
                         memory.pc -= 2;
                     }
                 },
+                0x07 => {
+                    memory.vars[nibbles[1]] = memory.dt;
+                },
+                0x15 => {
+                    memory.dt = memory.vars[nibbles[1]];
+                },
+                0x18 => {
+                    memory.st = memory.vars[nibbles[1]];
+                },
+                0x29 => {
+                    const digit = memory.vars[nibbles[1]] & 0x0F;
+                    memory.i = font_start_addr + (@as(u12, digit) * 5);
+                },
+                0x33 => {
+                    const value = memory.vars[nibbles[1]];
+                    memory.data[memory.i] = value / 100;
+                    memory.data[memory.i + 1] = (value / 10) % 10;
+                    memory.data[memory.i + 2] = value % 10;
+                },
                 0x1E => {
                     memory.i = @as(u12, memory.vars[nibbles[1]]) + memory.i;
+                },
+                0x55 => {
+                    const x = nibbles[1];
+                    for (0..x + 1) |idx| {
+                        memory.data[memory.i + @as(u12, @intCast(idx))] = memory.vars[idx];
+                    }
+                },
+                0x65 => {
+                    const x = nibbles[1];
+                    for (0..x + 1) |idx| {
+                        memory.vars[idx] = memory.data[memory.i + @as(u12, @intCast(idx))];
+                    }
                 },
                 else => return error.UnknownInstruction,
             },
@@ -163,7 +231,7 @@ pub const Memory = struct {
                 const addr: u12 = (@as(u12, nibbles[1]) << 8) | bytecode[1];
 
                 const pc_bytes = [2]u8{ @intCast(memory.pc >> 8), @truncate(memory.pc) };
-                try memory.writeBytes(memory.pc, &pc_bytes);
+                try memory.writeBytes(memory.sp, &pc_bytes);
 
                 memory.sp += 2;
                 memory.pc = addr;
@@ -229,6 +297,9 @@ pub const Memory = struct {
 
                     memory.vars[x] = result;
                     memory.vars[0xF] = no_borrow;
+                },
+                else => {
+                    return error.UnknownInstruction;
                 },
             },
             0x9 => {
